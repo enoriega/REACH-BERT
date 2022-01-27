@@ -96,7 +96,7 @@ def parse_input_file(path:Path) -> List[InputSequence]:
             if line:
                 buffer.append(line)
             else:
-                ret.append(InputSequence(buffer[0].split('\t'), buffer[1].split('\t'), buffer[2].split('\t')))
+                ret.append(InputSequence(buffer[0].split(' '), buffer[1].split('\t'), buffer[2].split('\t')))
                 buffer = None
 
     # In case there is lingering data in the  buffer that hasn't been cleared out

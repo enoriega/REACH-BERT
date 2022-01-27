@@ -8,8 +8,6 @@ from typing import List, NamedTuple, Optional
 from pprint import pprint
 from collections import defaultdict
 
-import typer
-
 class EventFrame(NamedTuple):
 	args: List[str]
 	trigger: Optional[str]
@@ -90,7 +88,7 @@ def make_file_contents(pmcid:str, base_dir:Path = Path()) -> List[str]:
 				else:
 					arg = args[0]
 					start, end = (arg[0] - sent_start), (arg[1] - sent_start)
-					if index >= start and index <= end:
+					if start <= index <= end:
 						tags[token_ix].add('ARG')
 						args = args[1:]
 					else:
