@@ -1,11 +1,13 @@
 """ Generate masked input files for REACH BERT inspired by the approached used by RoBERTa """
 import itertools as it
 from pathlib import Path
-from typing import NamedTuple, List, Optional, Set
+from typing import List, Optional
 
 import plac
 import numpy as np
 from tqdm import tqdm
+
+from data_utils import InputSequence, parse_input_file
 
 rng: np.random.Generator # This will be the random number generator
 vocab: List[str] # Holds the vocabulary used for masking
@@ -47,15 +49,6 @@ def main(input_path:Path, output_dir: Optional[Path], num_copies:int = 10, seed:
     else:
         mask_file(input_path, num_copies, output_dir)
 
-class InputSequence(NamedTuple):
-    """ Represents and input data point """
-    event_labels: List[str]
-    tags: List[str]
-    words: List[str]
-
-    # Convenienc method to return the lenght of the sequence
-    def __len__(self):
-        return len(self.tags)
 
 def build_vocab(input_path: Path) ->  List[str]:
     """
@@ -72,38 +65,10 @@ def build_vocab(input_path: Path) ->  List[str]:
     x= np.asarray(list(set(it.chain.from_iterable(
         seq.words for
         seq in it.chain.from_iterable(
-            parse_input_file(path) for path  in tqdm(paths, desc="Building vocab", unit=" files"))))))
+            parse_input_file(path) for path in tqdm(paths, desc="Building vocab", unit=" files"))))))
 
     return x
 
-
-def parse_input_file(path:Path) -> List[InputSequence]:
-    """
-    Parses the contents of :path: into a list of InputSequence instances
-
-    :param path: to the input file
-    :return: list of Input Sequence instances contained in the input file
-    """
-
-    ret = list()
-
-    buffer = None
-    with path.open() as f:
-        for line in f:
-            line = line.strip()
-            if not buffer:
-                buffer = list()
-            if line:
-                buffer.append(line)
-            else:
-                ret.append(InputSequence(buffer[0].split(' '), buffer[1].split('\t'), buffer[2].split('\t')))
-                buffer = None
-
-    # In case there is lingering data in the  buffer that hasn't been cleared out
-    if buffer and len(buffer) == 3:
-        ret.append(InputSequence(buffer[0].split('\t'), buffer[1].split('\t'), buffer[2].split('\t')))
-
-    return ret
 
 def mask_file(input_file: Path, num_copies: int, output_dir: Path) -> None:
     """

@@ -9,7 +9,7 @@ import plac
 from tqdm import tqdm
 import pandas as pd
 
-from mask_data_files import parse_input_file
+from data_utils import parse_input_file
 
 
 @plac.pos("input_dir_paths", help="Directory or directories with input files")

@@ -152,4 +152,4 @@ cython_debug/
 #.idea/
 
 # Exclude all items in data folder
-data
+data/
