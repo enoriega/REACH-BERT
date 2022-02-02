@@ -1,10 +1,12 @@
 from pathlib import Path
 from typing import Optional
 
-from torch.utils.data import Dataset
+import numpy as np
+from torch.utils.data import Dataset, Subset
 from tqdm import tqdm
 
 from data_loaders import DatasetIndex
+from data_loaders.utils import split_dataset
 from data_utils import parse_input_file, InputSequence
 
 
@@ -88,14 +90,21 @@ class ReachDataset(Dataset):
         Builds an index of the data set for random access retrieval
         """
 
+        seen = set()
+        labels = list() # Keep track of the labels for stratification
         file_map = dict()
         index = 0
         for file_path in tqdm(data_dir.iterdir(), desc= "Creating dataset index", unit=" files"):
             file_name = str(file_path.stem)
             data = parse_input_file(file_path)
-            for local_ix, _ in enumerate(data):
-                file_map[index] = (file_name, local_ix)
-                index += 1
+            for local_ix, datum in enumerate(data):
+                # Filter duplicate phrases
+                d_hash = hash(" ".join(datum.words))
+                if d_hash not in seen:
+                    file_map[index] = (file_name, local_ix)
+                    index += 1
+                    labels.append(datum.event_labels)
+                    seen.add(d_hash)
 
         assert len(file_map) > 0, f"Empty data directory:{str(data_dir)}"
 
@@ -107,11 +116,17 @@ class ReachDataset(Dataset):
         else:
             num_masked_instances = 0
 
+        # Split the data set
+        train, dev, test  = split_dataset(np.arange(index), labels, num_test=100_000, num_dev=100_00)
+
         index = DatasetIndex(
             data_dir= data_dir,
             file_map= file_map,
             masked_data_dir= masked_data_dir,
-            num_masked_instances= num_masked_instances
+            num_masked_instances= num_masked_instances,
+            train_indices= train,
+            dev_indices= dev,
+            test_indices= test
         )
 
         return index
@@ -131,15 +146,30 @@ class ReachDataset(Dataset):
 
         return index
 
+    def train_dataset(self) ->  Dataset:
+        """ Generates training dataset view from current dataset """
+        return Subset(self, self.index.train_indices)
+
+    def test_dataset(self) -> Dataset:
+        """ Generates testing dataset view from current dataset """
+        return Subset(self, self.index.test_indices)
+
+    def dev_dataset(self) -> Dataset:
+        """ Generates development dataset view from current dataset """
+        return Subset(self, self.index.dev_indices)
+
+
 # Test case
 if __name__ == "__main__":
     ds = ReachDataset("/media/evo870/data/reach-bert-data/bert_files",
                       "/media/evo870/data/reach-bert-data/masked_data",
                       False)
 
-    from numpy.random import default_rng
-    rng = default_rng(1024)
-    indices = rng.choice(len(ds), (1_000_000,))
+    print(len(ds.train_dataset()))
 
-    for ix in tqdm(indices):
-        ds[ix]
+    # from numpy.random import default_rng
+    # rng = default_rng(1024)
+    # indices = rng.choice(len(ds), (1_000_000,))
+    #
+    # for ix in tqdm(indices):
+    #     ds[ix]
