@@ -119,7 +119,7 @@ def make_file_contents(pmcid:str, base_dir:Path = Path()) -> tuple[list[str], in
 		blocks.append('\n')
 
 	# For each block with events, find one w/o
-	sents_wo_events = list(set(sentences.keys()) - sents_w_events)
+	sents_wo_events = list(set(k for k in sentences.keys() if k.startswith('sent')) - sents_w_events)
 
 	indices = rng.choice(sents_wo_events, min(len(sents_w_events), len(sents_wo_events)), replace=False)
 
