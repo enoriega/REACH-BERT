@@ -164,7 +164,8 @@ def mask_sequence(original_seq: InputSequence) -> InputSequence:
     return InputSequence(
             event_labels=original_seq.event_labels,
             tags= original_seq.tags,
-            words= list(new_words)
+            words= list(new_words),
+            masked_words= None
         )
 
 

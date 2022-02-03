@@ -27,7 +27,7 @@ def parse_input_file(path:Path) -> List[InputSequence]:
     buffer = None
     with path.open() as f:
         for line in f:
-            line = line.strip()
+            line = line.strip('\n')
             if not buffer:
                 buffer = list()
             if line:
@@ -38,6 +38,6 @@ def parse_input_file(path:Path) -> List[InputSequence]:
 
     # In case there is lingering data in the  buffer that hasn't been cleared out
     if buffer and len(buffer) == 3:
-        ret.append(InputSequence(buffer[0].split('\t'), buffer[1].split('\t'), buffer[2].split('\t')))
+        ret.append(InputSequence(buffer[0].split('\t'), buffer[1].split('\t'), buffer[2].split('\t'), None))
 
     return ret
