@@ -1,12 +1,7 @@
-import itertools
-from typing import Sequence, Set, Tuple
+from typing import Sequence, Tuple
 
 import numpy as np
-from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder
-from skmultilearn.model_selection import iterative_train_test_split
-from tqdm import tqdm
 
 
 def split_dataset(indices: Sequence[int], labels:Sequence[Sequence[str]], num_test: int, num_dev: int) -> Tuple[Sequence[int], Sequence[int], Sequence[int]]:

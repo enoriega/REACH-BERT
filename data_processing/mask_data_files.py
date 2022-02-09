@@ -1,7 +1,7 @@
 """ Generate masked input files for REACH BERT inspired by the approached used by RoBERTa """
 import itertools as it
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import plac
 import numpy as np
@@ -50,7 +50,7 @@ def main(input_path:Path, output_dir: Optional[Path], num_copies:int = 10, seed:
         mask_file(input_path, num_copies, output_dir)
 
 
-def build_vocab(input_path: Path) ->  List[str]:
+def build_vocab(input_path: Path) ->  Sequence[str]:
     """
     Builds the vocabulary from ``input_path``
     :param input_path: to file or directory with files

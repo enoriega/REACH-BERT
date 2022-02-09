@@ -1,5 +1,7 @@
 from pathlib import Path
-from typing import NamedTuple, List, Optional
+from typing import NamedTuple, List, Optional, Sequence, Mapping
+
+from torch import Tensor
 
 
 class InputSequence(NamedTuple):
@@ -12,6 +14,12 @@ class InputSequence(NamedTuple):
     # Convenienc method to return the lenght of the sequence
     def __len__(self):
         return len(self.tags)
+
+class TransformerInput(NamedTuple):
+    """ Represents an input sequence encoded by a tokenizer ready to pass through a transformer """
+    event_labels: List[str]
+    tags: List[str]
+    tensor: Tensor # Instead of words, we have a tensor (matrix) with the embedded words
 
 
 def parse_input_file(path:Path) -> List[InputSequence]:
@@ -41,3 +49,8 @@ def parse_input_file(path:Path) -> List[InputSequence]:
         ret.append(InputSequence(buffer[0].split('\t'), buffer[1].split('\t'), buffer[2].split('\t'), None))
 
     return ret
+
+def marshall_inputs(input_sequences:Sequence[InputSequence]) -> Sequence[Mapping[str, Tensor]]:
+    # Map to the labels using BatchEncoding.word_to_token
+    # call the tokenizer using is_split_into_words = True kwarg
+    pass
