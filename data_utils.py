@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import NamedTuple, List, Optional, Sequence, Mapping
 
+from tokenizers import Tokenizer
 from torch import Tensor
 
 
@@ -21,6 +22,8 @@ class TransformerInput(NamedTuple):
     tags: List[str]
     tensor: Tensor # Instead of words, we have a tensor (matrix) with the embedded words
 
+def _buffer_to_sequence(buffer: List[str]) -> InputSequence:
+    return InputSequence([l for l in buffer[0].strip('\t').split('\t') if l], buffer[1].strip('\t').split('\t'), buffer[2].split('\t'), None)
 
 def parse_input_file(path:Path) -> List[InputSequence]:
     """
@@ -41,16 +44,11 @@ def parse_input_file(path:Path) -> List[InputSequence]:
             if line:
                 buffer.append(line)
             else:
-                ret.append(InputSequence(buffer[0].split('\t'), buffer[1].split('\t'), buffer[2].split('\t'), None))
+                ret.append(_buffer_to_sequence(buffer))
                 buffer = None
 
     # In case there is lingering data in the  buffer that hasn't been cleared out
     if buffer and len(buffer) == 3:
-        ret.append(InputSequence(buffer[0].split('\t'), buffer[1].split('\t'), buffer[2].split('\t'), None))
+        ret.append(_buffer_to_sequence(buffer))
 
     return ret
-
-def marshall_inputs(input_sequences:Sequence[InputSequence]) -> Sequence[Mapping[str, Tensor]]:
-    # Map to the labels using BatchEncoding.word_to_token
-    # call the tokenizer using is_split_into_words = True kwarg
-    pass

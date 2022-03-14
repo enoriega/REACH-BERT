@@ -29,6 +29,14 @@ class ReachDataset(Dataset):
         # Sets the current masked index to 1 if available, else to zero to return the original version
         self.__masked_index = 1 if self.index.num_masked_instances > 0 else 0
 
+    @property
+    def num_interactions(self):
+        return self.index.num_interactions
+
+    @property
+    def num_tags(self):
+        return self.index.num_tags
+
     def __len__(self) -> int:
         """ Number of data in this dataset instance """
         return len(self.index.file_map)
@@ -92,6 +100,8 @@ class ReachDataset(Dataset):
 
         seen = set()
         labels = list() # Keep track of the labels for stratification
+        unique_labels = set()
+        unique_tags = set()
         file_map = dict()
         index = 0
         for file_path in tqdm(data_dir.iterdir(), desc= "Creating dataset index", unit=" files"):
@@ -104,6 +114,8 @@ class ReachDataset(Dataset):
                     file_map[index] = (file_name, local_ix)
                     index += 1
                     labels.append(datum.event_labels)
+                    unique_labels |= set(datum.event_labels)
+                    unique_tags |= set(datum.tags)
                     seen.add(d_hash)
 
         assert len(file_map) > 0, f"Empty data directory:{str(data_dir)}"
@@ -126,7 +138,11 @@ class ReachDataset(Dataset):
             num_masked_instances= num_masked_instances,
             train_indices= train,
             dev_indices= dev,
-            test_indices= test
+            test_indices= test,
+            interaction_codes= {label:ix for ix, label in enumerate(sorted(unique_labels))},
+            tag_codes= {label:ix for ix, label in enumerate(sorted(unique_tags))}
+            # num_interactions= len(unique_labels),
+            # num_tags= len(unique_tags)
         )
 
         return index
