@@ -21,7 +21,7 @@ def main(hparams):
     # Load the data module and query the parameters
     dataset = ReachDataset(data_dir = "/media/evo870/data/reach-bert-data/bert_files_w_negatives",
                            masked_data_dir= "/media/evo870/data/reach-bert-data/masked_bert_files_w_negatives", overwrite_index=False,
-                             debug = True)
+                             debug = False)
 
     # Load the tokenizer model
     tokenizer = AutoTokenizer.from_pretrained("microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext")

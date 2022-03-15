@@ -1,11 +1,14 @@
 """ Implement REACH BERT model """
+from collections import defaultdict
 from typing import Mapping, Optional
 
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.utilities.types import STEP_OUTPUT
+import torchmetrics
+from pytorch_lightning.utilities.types import STEP_OUTPUT, EPOCH_OUTPUT
 from torch import nn, Tensor
 from torch.nn import functional as F
+from torchmetrics import MetricCollection, Precision, Recall, F1, F1Score
 from transformers import AutoModel, AutoTokenizer
 
 from data_loaders.reach_data_module import ReachBertInput
@@ -17,8 +20,27 @@ class ReachBert(pl.LightningModule):
     def __init__(self, num_interactions: int, num_tags: int):
         super(ReachBert, self).__init__()
 
+        # Bookkeeping
         self.num_interactions = num_interactions
         self.num_tags = num_tags
+
+        # Metrics
+        label_metrics = MetricCollection([
+            F1Score(num_classes= num_interactions, average = 'macro', mdmc_average='samplewise'),
+            Precision(num_classes= num_interactions, average = 'macro', mdmc_average='samplewise'),
+            Recall(num_classes= num_interactions, average = 'macro', mdmc_average='samplewise')])
+
+        tag_metrics = MetricCollection([
+            F1Score(num_classes=num_tags, average='macro'),
+            Precision(num_classes=num_tags, average='macro'),
+            Recall(num_classes=num_tags, average='macro')])
+
+        self.train_label_metrics = label_metrics.clone(prefix='train_')
+        self.val_label_metrics = label_metrics.clone(prefix='val_')
+
+        self.train_tag_metrics = tag_metrics.clone(prefix='train_')
+        self.val_tag_metrics = tag_metrics.clone(prefix='val_')
+        ##############
 
         # Load BERT ckpt, the foundation to our model
         self.transformer = AutoModel.from_pretrained("microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext")
@@ -46,19 +68,60 @@ class ReachBert(pl.LightningModule):
         return self.transformer(**inputs) # We have to unpack the arguments of the transformer's fwd method
 
     def training_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        data = self._step(batch, batch_idx)
+        return self._step(batch, batch_idx)
 
-        return data['label_loss'] + data['tag_loss']
+    def training_step_end(self, batch_parts):
+
+        data = self._merge_batch_parts(batch_parts)
+
+        self.train_label_metrics(data["label_predictions"], data["label_targets"])
+        self.train_tag_metrics(data["tag_predictions"], data["tag_targets"])
+
+        self.log("Label/F1 Train", self.train_label_metrics.F1Score, on_step=False, on_epoch=True)
+        self.log("Label/Precision Train", self.train_label_metrics.Precision, on_step=False, on_epoch=True)
+        self.log("Label/Recall Train", self.train_label_metrics.Recall, on_step=False, on_epoch=True)
+
+        self.log("Tag/F1 Train", self.train_tag_metrics.F1Score, on_step=False, on_epoch=True)
+        self.log("Tag/Precision Train", self.train_tag_metrics.Precision, on_step=False, on_epoch=True)
+        self.log("Tag/Recall Train", self.train_tag_metrics.Recall, on_step=False, on_epoch=True)
+
+        self.log("Loss/Label Training", data['label_loss'], on_step=True)
+        self.log("Loss/Tag Training", data['tag_loss'], on_step=True)
+        self.log("Loss/Combined Training", data['loss'], on_step=True)
+
+        return data
+
 
     def validation_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        data = self._step(batch, batch_idx)
+        return self._step(batch, batch_idx)
 
-        return data['label_loss'] + data['tag_loss']
+    def validation_step_end(self, batch_parts) -> STEP_OUTPUT:
+        data = self._merge_batch_parts(batch_parts)
 
-    def test_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        data = self._step(batch, batch_idx)
+        self.val_label_metrics(data["label_predictions"], data["label_targets"])
+        self.val_tag_metrics(data["tag_predictions"], data["tag_targets"])
 
-        return data['label_loss'] + data['tag_loss']
+        self.log("Label/F1 Val", self.val_label_metrics.F1Score, on_step=False, on_epoch=True)
+        self.log("Label/Precision Val", self.val_label_metrics.Precision, on_step=False, on_epoch=True)
+        self.log("Label/Recall Val", self.val_label_metrics.Recall, on_step=False, on_epoch=True)
+
+        self.log("Tag/F1 Val", self.val_tag_metrics.F1Score, on_step=False, on_epoch=True)
+        self.log("Tag/Precision Val", self.val_tag_metrics.Precision, on_step=False, on_epoch=True)
+        self.log("Tag/Recall Val", self.val_tag_metrics.Recall, on_step=False, on_epoch=True)
+
+        self.log("Loss/Label Val", data['label_loss'], on_step=False, on_epoch=True)
+        self.log("Loss/Tag Val", data['tag_loss'], on_step=False, on_epoch=True)
+        self.log("Loss/Combined Val", data['loss'], on_step=False, on_epoch=True)
+
+        return data
+
+    # def test_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
+        # data = self._step(batch, batch_idx)
+        #
+        # return data['label_loss'] + data['tag_loss']
+
+    # def test_step_end(self, batch_parts) -> STEP_OUTPUT:
+    #     return self._step_end(batch_parts)
 
     def _step(self, batch: ReachBertInput, batch_idx: int) -> Optional[STEP_OUTPUT]:
 
@@ -87,23 +150,39 @@ class ReachBert(pl.LightningModule):
         tags = tags.reshape((-1, self.num_tags))[tags_mask, :]
 
         # Get the predictions and targets
-        tag_predictions = torch.max(tags_outputs, 1)[1].float()
-        tag_targets = torch.max(tags, 1)[1].float()
+        tag_predictions = torch.max(tags_outputs, 1)[1]
+        tag_targets = torch.max(tags, 1)[1]
 
         tag_loss  = F.cross_entropy(tags_outputs, tags)
 
-
         # Return all data
         return {
-            "label_loss": label_loss,
-            "label_targets":  labels,
-            "label_predictions": label_predictions,
-            "tag_loss": tag_loss,
+            "loss": label_loss + tag_loss,
+            "label_loss": label_loss.detach(),
+            "label_targets":  labels.int(),
+            "label_predictions": label_predictions.int(),
+            "tag_loss": tag_loss.detach(),
             "tag_targets": tag_targets.detach(),
             "tag_predictions": tag_predictions.detach()
         }
 
+    def _merge_batch_parts(self, batch_parts):
+        """ Merge batch parts when using data parallel computation (i.e. on the HPC) """
 
+        if type(batch_parts) == dict:
+            merged_data = dict()
+            for key in batch_parts:
+                if key.endswith("loss"):
+                    merged_data[key] = batch_parts[key].mean()
+                elif key.startswith("label"):
+                    merged_data[key] = batch_parts[key].reshape((-1, self.num_interactions))
+                else:
+                    merged_data[key] = batch_parts[key].flatten()
+
+        else:
+            merged_data = batch_parts
+
+        return merged_data
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
