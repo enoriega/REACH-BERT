@@ -47,7 +47,7 @@ class ReachDataModule(LightningDataModule):
         encoding = tokenizer([i.masked_words for i in instances], padding='max_length', max_length=max_seq_len, is_split_into_words= True, return_tensors='pt', truncation=True)
 
         # Map the labels to subword unit space
-        tags  = torch.full((len(instances), max_seq_len, ds_index.num_tags), ds_index.tag_codes['O'], dtype=torch.float)
+        tags  = torch.zeros((len(instances), max_seq_len, ds_index.num_tags), dtype=torch.float)
         interactions = torch.zeros((len(instances), ds_index.num_interactions), dtype=torch.float)
 
         for ix, instance in enumerate(instances):

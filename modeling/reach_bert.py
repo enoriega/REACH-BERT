@@ -17,6 +17,9 @@ class ReachBert(pl.LightningModule):
     def __init__(self, num_interactions: int, num_tags: int):
         super(ReachBert, self).__init__()
 
+        self.num_interactions = num_interactions
+        self.num_tags = num_tags
+
         # Load BERT ckpt, the foundation to our model
         self.transformer = AutoModel.from_pretrained("microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext")
 
@@ -43,9 +46,21 @@ class ReachBert(pl.LightningModule):
         return self.transformer(**inputs) # We have to unpack the arguments of the transformer's fwd method
 
     def training_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        return self.validation_step(batch, batch_idx)
+        data = self._step(batch, batch_idx)
 
-    def validation_step(self, batch: ReachBertInput, batch_idx: int) -> Optional[STEP_OUTPUT]:
+        return data['label_loss'] + data['tag_loss']
+
+    def validation_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
+        data = self._step(batch, batch_idx)
+
+        return data['label_loss'] + data['tag_loss']
+
+    def test_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
+        data = self._step(batch, batch_idx)
+
+        return data['label_loss'] + data['tag_loss']
+
+    def _step(self, batch: ReachBertInput, batch_idx: int) -> Optional[STEP_OUTPUT]:
 
         inputs, tags, labels = batch.features, batch.tags, batch.labels
         x = self(**inputs)
@@ -56,19 +71,39 @@ class ReachBert(pl.LightningModule):
 
         label_loss = F.binary_cross_entropy_with_logits(pooler_output, labels)
 
+        # Compute the predictions
+        label_predictions = (torch.sigmoid(pooler_output) >= 0.5).float().detach()
+
         tags_tensor = x['last_hidden_state']
         tags_outputs = self._tagger_head(tags_tensor)
 
-        tags_loss  = F.binary_cross_entropy_with_logits(tags_outputs, tags, reduction='none') # Don't reduce because we are going to select only the elements of the attended tokens
+        # Build a boolean mask to compute the loss only of the attended tokens (ignore the padded entries of the batch)
+        tags_mask = inputs['attention_mask'].flatten().bool()
 
-        # Use the attention mask to choose the tokens that where attended
-        tags_loss = tags_loss[inputs['attention_mask'], :].flatten().mean()
+        # Flatten the batch to measure a two-dimension sequence of logits, then select only the attended logits
+        tags_outputs = tags_outputs.reshape((-1, self.num_tags))[tags_mask, :]
 
-        # Add both losses
-        return label_loss + tags_loss
+        # Do the same for the tag targets
+        tags = tags.reshape((-1, self.num_tags))[tags_mask, :]
 
-    def test_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        return torch.tensor([0.])
+        # Get the predictions and targets
+        tag_predictions = torch.max(tags_outputs, 1)[1].float()
+        tag_targets = torch.max(tags, 1)[1].float()
+
+        tag_loss  = F.cross_entropy(tags_outputs, tags)
+
+
+        # Return all data
+        return {
+            "label_loss": label_loss,
+            "label_targets":  labels,
+            "label_predictions": label_predictions,
+            "tag_loss": tag_loss,
+            "tag_targets": tag_targets.detach(),
+            "tag_predictions": tag_predictions.detach()
+        }
+
+
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
