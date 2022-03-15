@@ -25,7 +25,7 @@ def main(hparams):
     # Load the tokenizer model
     tokenizer = AutoTokenizer.from_pretrained("microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext")
 
-    data_module = ReachDataModule(dataset = dataset, tokenizer = tokenizer, batch_size=5)
+    data_module = ReachDataModule(dataset = dataset, tokenizer = tokenizer, batch_size=25)
 
     model = ReachBert(num_interactions=dataset.num_interactions, num_tags=dataset.num_tags)
     trainer = Trainer(gpus= 1)

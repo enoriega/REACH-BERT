@@ -20,7 +20,7 @@ class ReachBertInput:
 class ReachDataModule(LightningDataModule):
     """ Encapsulates the different dataloaders using lightning """
 
-    def __init__(self, dataset: ReachDataset, tokenizer: PreTrainedTokenizer, batch_size: int = 1):
+    def __init__(self, dataset: ReachDataset, tokenizer: PreTrainedTokenizer, batch_size: int = 1, max_seq_len: int = 256):
         """
         Creates instance of `ReachDataModule`
         :param dataset: to use for train/dev/test
@@ -29,6 +29,7 @@ class ReachDataModule(LightningDataModule):
         self._dataset = dataset
         self._tokenizer = tokenizer
         self._batch_size = batch_size
+        self._max_seq_len = max_seq_len
         self._train = DataLoader(self._dataset.train_dataset(), collate_fn=self._collator, batch_size=batch_size)
         self._test = DataLoader(self._dataset.test_dataset(), collate_fn=self._collator, batch_size=batch_size)
         self._dev = DataLoader(self._dataset.dev_dataset(), collate_fn=self._collator, batch_size=batch_size)
@@ -38,19 +39,20 @@ class ReachDataModule(LightningDataModule):
         """ Converts a batch of `InputSequence`s into a suitable format for pytorch """
 
         ds_index = self._dataset.index
+        max_seq_len = self._max_seq_len
 
         # Tokenize the input words
         tokenizer = self._tokenizer
 
-        encoding = tokenizer([i.masked_words for i in instances], padding='max_length', max_length=512, is_split_into_words= True, return_tensors='pt')
+        encoding = tokenizer([i.masked_words for i in instances], padding='max_length', max_length=max_seq_len, is_split_into_words= True, return_tensors='pt', truncation=True)
 
         # Map the labels to subword unit space
-        tags  = torch.full((len(instances), 512), ds_index.tag_codes['O'], dtype=torch.int)
-        interactions = torch.zeros((len(instances), ds_index.num_interactions), dtype=torch.int)
+        tags  = torch.full((len(instances), max_seq_len, ds_index.num_tags), ds_index.tag_codes['O'], dtype=torch.float)
+        interactions = torch.zeros((len(instances), ds_index.num_interactions), dtype=torch.float)
 
         for ix, instance in enumerate(instances):
             for jx, t in enumerate(instance.tags):
-                tags[ix, encoding.word_to_tokens(jx)] =  ds_index.tag_codes[t]
+                tags[ix, encoding.word_to_tokens(jx), ds_index.tag_codes[t]] = 1
 
             for l in instance.event_labels:
                 interactions[ix, ds_index.interaction_codes[l]] = 1

@@ -43,32 +43,29 @@ class ReachBert(pl.LightningModule):
         return self.transformer(**inputs) # We have to unpack the arguments of the transformer's fwd method
 
     def training_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        inputs, tags, labels = batch.features, batch.tags, batch.labels
-        x = self(**inputs)
-        # Pass the relevant outputs of the transformers to the appropriate heads
-        # pooler_tensor = x['pooler_input'] # This is the output of a FF with tanh activation layer on top of the [CLS] token
-        pooler_tensor = x['last_hidden_state'][:, 0, :]  # This is the [CLS] embedding
-        pooler_output = self._pooler_head(pooler_tensor)
-
-        tags_tensor = x['last_hidden_state'][:, 1:-1, :]  # Discard the first token ([CLS]) and the last token ([SEP])
-        tags_outputs = self._tagger_head(tags_tensor)
-        return torch.Tensor([0.])
+        return self.validation_step(batch, batch_idx)
 
     def validation_step(self, batch: ReachBertInput, batch_idx: int) -> Optional[STEP_OUTPUT]:
+
         inputs, tags, labels = batch.features, batch.tags, batch.labels
         x = self(**inputs)
+
         # Pass the relevant outputs of the transformers to the appropriate heads
-        # pooler_tensor = x['pooler_input'] # This is the output of a FF with tanh activation layer on top of the [CLS] token
         pooler_tensor = x['last_hidden_state'][:, 0, :]  # This is the [CLS] embedding
         pooler_output = self._pooler_head(pooler_tensor)
 
-        tags_tensor = x['last_hidden_state'][:, 1:-1, :]  # Discard the first token ([CLS]) and the last token ([SEP])
+        label_loss = F.binary_cross_entropy_with_logits(pooler_output, labels)
+
+        tags_tensor = x['last_hidden_state']
         tags_outputs = self._tagger_head(tags_tensor)
 
-        # Return the tensor outputs
-        # return {"interactions_logits": pooler_output, "tags_logits": tags_outputs}
-        # val_loss = F.cross_entropy(y_hat, y)
-        return torch.tensor(0)
+        tags_loss  = F.binary_cross_entropy_with_logits(tags_outputs, tags, reduction='none') # Don't reduce because we are going to select only the elements of the attended tokens
+
+        # Use the attention mask to choose the tokens that where attended
+        tags_loss = tags_loss[inputs['attention_mask'], :].flatten().mean()
+
+        # Add both losses
+        return label_loss + tags_loss
 
     def test_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
         return torch.tensor([0.])
