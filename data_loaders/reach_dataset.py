@@ -92,9 +92,10 @@ class ReachDataset(Dataset):
     @masked_index.setter
     def masked_index(self, val) -> None:
         """ Set the mask index"""
-        assert 0 <= val <= self.masked_index, f"Masked index out of bounds: {val} not within [0, {self.num_masked_instances}]"
-
-        self.__masked_index = val
+        if 0 <= val <= self.num_masked_instances:
+            self.__masked_index = val
+        else:
+            raise IndexError(f"Masked index out of bounds: {val} not within [0, {self.num_masked_instances}]")
 
     @staticmethod
     def create_index(data_dir:  Path, masked_data_dir: Optional[Path]) -> DatasetIndex:
