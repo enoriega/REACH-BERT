@@ -26,10 +26,13 @@ def main(hparams):
     # Load the tokenizer model
     tokenizer = AutoTokenizer.from_pretrained("microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext")
 
-    data_module = ReachDataModule(dataset = dataset, tokenizer = tokenizer, batch_size=2)
+    # This is a hyper param tuned using data_processing/sequence_length_stats.py
+    max_seq_len = 69
+
+    data_module = ReachDataModule(dataset = dataset, tokenizer = tokenizer, max_seq_len = max_seq_len, batch_size=2)
 
     model = ReachBert(num_interactions=dataset.num_interactions, num_tags=dataset.num_tags)
-    trainer = Trainer(gpus= 1)
+    trainer = Trainer(gpus= 1, val_check_interval=0.1) # Do validation every 10% of an epoch
     trainer.fit(model, datamodule=data_module)
 
 
