@@ -20,7 +20,7 @@ class ReachBertInput:
 class ReachDataModule(LightningDataModule):
     """ Encapsulates the different dataloaders using lightning """
 
-    def __init__(self, dataset: ReachDataset, tokenizer: PreTrainedTokenizer, batch_size: int = 1, max_seq_len: int = 256):
+    def __init__(self, dataset: ReachDataset, tokenizer: PreTrainedTokenizer, num_workers: int = 1, batch_size: int = 1, max_seq_len: int = 256):
         """
         Creates instance of `ReachDataModule`
         :param dataset: to use for train/dev/test
@@ -30,9 +30,10 @@ class ReachDataModule(LightningDataModule):
         self._tokenizer = tokenizer
         self._batch_size = batch_size
         self._max_seq_len = max_seq_len
-        self._train = DataLoader(self._dataset.train_dataset(), collate_fn=self._collator, batch_size=batch_size)
+        self._num_workers = num_workers
+        self._train = DataLoader(self._dataset.train_dataset(), collate_fn=self._collator, batch_size=batch_size, num_workers= num_workers)
         self._test = DataLoader(self._dataset.test_dataset(), collate_fn=self._collator, batch_size=batch_size)
-        self._dev = DataLoader(self._dataset.dev_dataset(), collate_fn=self._collator, batch_size=batch_size)
+        self._dev = DataLoader(self._dataset.dev_dataset(), collate_fn=self._collator, batch_size=batch_size, num_workers = num_workers)
 
 
     def _collator(self, instances: List[InputSequence]) -> ReachBertInput:

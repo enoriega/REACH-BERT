@@ -10,6 +10,7 @@
 from argparse import ArgumentParser
 
 from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint
 from transformers import AutoTokenizer
 
 from data_loaders import ReachDataset
@@ -29,10 +30,11 @@ def main(hparams):
     # This is a hyper param tuned using data_processing/sequence_length_stats.py
     max_seq_len = 69
 
-    data_module = ReachDataModule(dataset = dataset, tokenizer = tokenizer, max_seq_len = max_seq_len, batch_size=2)
+    data_module = ReachDataModule(dataset = dataset, tokenizer = tokenizer, max_seq_len = max_seq_len, batch_size=100, num_workers=8)
 
     model = ReachBert(num_interactions=dataset.num_interactions, num_tags=dataset.num_tags)
-    trainer = Trainer(gpus= 1, val_check_interval=0.1) # Do validation every 10% of an epoch
+    checkpoint_callback = ModelCheckpoint(dirpath='ckpts', save_top_k=3, auto_insert_metric_name=False, monitor="Loss/Combined Val")
+    trainer = Trainer(gpus= 1, val_check_interval=0.1, callbacks=[checkpoint_callback]) # Do validation every 10% of an epoch
     trainer.fit(model, datamodule=data_module)
 
 
