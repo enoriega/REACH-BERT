@@ -1,4 +1,5 @@
 """ Implement REACH BERT model """
+from abc import ABC, ABCMeta
 from typing import Mapping, Optional
 
 import pytorch_lightning as pl
@@ -12,7 +13,7 @@ from transformers import AutoModel
 from data_loaders.reach_data_module import ReachBertInput
 
 
-class ReachBert(pl.LightningModule):
+class ReachBert(pl.LightningModule, metaclass=ABCMeta):
     """ REACH BERT """
 
     def __init__(self, backbone_model_name: str, num_interactions: int, num_tags: int):
@@ -62,66 +63,14 @@ class ReachBert(pl.LightningModule):
         )
 
     def forward(self, **inputs:Mapping[str, Tensor]) -> Mapping[str, Tensor]:
+        """ Forward pass of our model """
+
         # Pass the tensor through the transformer
         return self.transformer(**inputs) # We have to unpack the arguments of the transformer's fwd method
 
-    def training_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        return self._step(batch, batch_idx)
-
-    def training_step_end(self, batch_parts):
-
-        data = self._merge_batch_parts(batch_parts)
-
-        self.train_label_metrics(data["label_predictions"], data["label_targets"])
-        self.train_tag_metrics(data["tag_predictions"], data["tag_targets"])
-
-        self.log("Label/F1 Train", self.train_label_metrics.F1Score, on_step=False, on_epoch=True)
-        self.log("Label/Precision Train", self.train_label_metrics.Precision, on_step=False, on_epoch=True)
-        self.log("Label/Recall Train", self.train_label_metrics.Recall, on_step=False, on_epoch=True)
-
-        self.log("Tag/F1 Train", self.train_tag_metrics.F1Score, on_step=False, on_epoch=True)
-        self.log("Tag/Precision Train", self.train_tag_metrics.Precision, on_step=False, on_epoch=True)
-        self.log("Tag/Recall Train", self.train_tag_metrics.Recall, on_step=False, on_epoch=True)
-
-        self.log("Loss/Label Training", data['label_loss'], on_step=True)
-        self.log("Loss/Tag Training", data['tag_loss'], on_step=True)
-        self.log("Loss/Combined Training", data['loss'], on_step=True)
-
-        return data
-
-
-    def validation_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        return self._step(batch, batch_idx)
-
-    def validation_step_end(self, batch_parts) -> STEP_OUTPUT:
-        data = self._merge_batch_parts(batch_parts)
-
-        self.val_label_metrics(data["label_predictions"], data["label_targets"])
-        self.val_tag_metrics(data["tag_predictions"], data["tag_targets"])
-
-        self.log("Label/F1 Val", self.val_label_metrics.F1Score, on_step=False, on_epoch=True)
-        self.log("Label/Precision Val", self.val_label_metrics.Precision, on_step=False, on_epoch=True)
-        self.log("Label/Recall Val", self.val_label_metrics.Recall, on_step=False, on_epoch=True)
-
-        self.log("Tag/F1 Val", self.val_tag_metrics.F1Score, on_step=False, on_epoch=True)
-        self.log("Tag/Precision Val", self.val_tag_metrics.Precision, on_step=False, on_epoch=True)
-        self.log("Tag/Recall Val", self.val_tag_metrics.Recall, on_step=False, on_epoch=True)
-
-        self.log("Loss/Label Val", data['label_loss'], on_step=False, on_epoch=True)
-        self.log("Loss/Tag Val", data['tag_loss'], on_step=False, on_epoch=True)
-        self.log("Loss/Combined Val", data['loss'], on_step=False, on_epoch=True)
-
-        return data
-
-    # def test_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        # data = self._step(batch, batch_idx)
-        #
-        # return data['label_loss'] + data['tag_loss']
-
-    # def test_step_end(self, batch_parts) -> STEP_OUTPUT:
-    #     return self._step_end(batch_parts)
-
-    def _step(self, batch: ReachBertInput, batch_idx: int) -> Optional[STEP_OUTPUT]:
+    # region Shared methods
+    def __step(self, batch: ReachBertInput, batch_idx: int) -> Optional[STEP_OUTPUT]:
+        """ Body of the train/val/test step """
 
         inputs, tags, labels = batch.features, batch.tags, batch.labels
         x = self(**inputs)
@@ -164,7 +113,41 @@ class ReachBert(pl.LightningModule):
             "tag_predictions": tag_predictions.detach()
         }
 
-    def _merge_batch_parts(self, batch_parts):
+    def __step_end(self, batch_parts, step_kind:str, label_metrics:MetricCollection, tag_metrics:MetricCollection) -> STEP_OUTPUT:
+        """ Generic step end hook """
+
+        # Merge together all the batch parts, in case it runs in multiple GPUs
+        data = self.__merge_batch_parts(batch_parts)
+
+        # Do logging
+        self.__log(step_kind, data, label_metrics, tag_metrics)
+
+        # Return the merged step's data
+        return data
+
+    def __log(self, step_kind:str, data:dict, label_metrics:MetricCollection, tag_metrics:MetricCollection):
+        """ Generic log function for the metrics for the current step """
+
+        def _log_collection(task_name:str, metrics:MetricCollection):
+            """ Helper function for logging a metrics collection"""
+            self.log(f"{task_name}/F1 {step_kind}", metrics.F1Score, on_step=False, on_epoch=True)
+            self.log(f"{task_name}/Precision {step_kind}", metrics.Precision, on_step=False, on_epoch=True)
+            self.log(f"{task_name}/Recall {step_kind}", metrics.Recall, on_step=False, on_epoch=True)
+
+        # Compute the metrics from the predictions
+        label_metrics(data["label_predictions"], data["label_targets"])
+        tag_metrics(data["tag_predictions"], data["tag_targets"])
+
+        # Log metrics for both tasks
+        _log_collection("Label", label_metrics)
+        _log_collection("Tag", tag_metrics)
+
+        # Log losses
+        self.log(f"Loss/Label {step_kind}", data['label_loss'], on_step=True)
+        self.log(f"Loss/Tag {step_kind}", data['tag_loss'], on_step=True)
+        self.log(f"Loss/Combined {step_kind}", data['loss'], on_step=True)
+
+    def __merge_batch_parts(self, batch_parts):
         """ Merge batch parts when using data parallel computation (i.e. on the HPC) """
 
         if type(batch_parts) == dict:
@@ -181,6 +164,21 @@ class ReachBert(pl.LightningModule):
             merged_data = batch_parts
 
         return merged_data
+    # endregion
+
+    # region Step hooks
+    def training_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
+        return self.__step(batch, batch_idx)
+
+    def training_step_end(self, batch_parts):
+        return self.__step_end(batch_parts, "Train", self.train_label_metrics, self.train_tag_metrics)
+
+    def validation_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
+        return self.__step(batch, batch_idx)
+
+    def validation_step_end(self, batch_parts) -> STEP_OUTPUT:
+        return self.__step_end(batch_parts, "Val", self.val_label_metrics, self.val_tag_metrics)
+    # endregion
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)

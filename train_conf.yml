@@ -14,7 +14,7 @@ fit:
       - class_path: data_loaders.callbacks.ShiftMasksCallback
     gpus: 1
     enable_progress_bar: true
-    fast_dev_run: true
+    fast_dev_run: false
     # Run validation every 10% of an epoch
     val_check_interval: 0.1
   model:
