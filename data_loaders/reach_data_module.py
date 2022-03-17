@@ -4,7 +4,7 @@ from typing import Optional, Callable, List, Any, Mapping
 import torch
 from pytorch_lightning import LightningDataModule
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, AutoTokenizer
 from torch.utils.data import DataLoader
 
 from data_loaders import ReachDataset
@@ -20,13 +20,28 @@ class ReachBertInput:
 class ReachDataModule(LightningDataModule):
     """ Encapsulates the different dataloaders using lightning """
 
-    def __init__(self, dataset: ReachDataset, tokenizer: PreTrainedTokenizer, num_workers: int = 1, batch_size: int = 1, max_seq_len: int = 256):
+    def __init__(self,
+                 data_dir: str,
+                 masked_data_dir: str,
+                 tokenizer_model_name: str,
+                 num_workers: int = 1,
+                 batch_size: int = 1,
+                 max_seq_len: int = 256,
+                 overwrite_dataset_index: bool = False,
+                 debug: bool = False
+                 ):
         """
         Creates instance of `ReachDataModule`
         :param dataset: to use for train/dev/test
         """
         super().__init__()
-        self._dataset = dataset
+        # Load the data module and query the parameters
+        self._dataset = ReachDataset(data_dir=data_dir,
+                               masked_data_dir=masked_data_dir,
+                               overwrite_index=overwrite_dataset_index)
+
+        # Load the tokenizer model
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_model_name)
         self._tokenizer = tokenizer
         self._batch_size = batch_size
         self._max_seq_len = max_seq_len
@@ -35,6 +50,13 @@ class ReachDataModule(LightningDataModule):
         self._test = DataLoader(self._dataset.test_dataset(), collate_fn=self._collator, batch_size=batch_size)
         self._dev = DataLoader(self._dataset.dev_dataset(), collate_fn=self._collator, batch_size=batch_size, num_workers = num_workers)
 
+    @property
+    def num_interactions(self):
+        return self._dataset.num_interactions
+
+    @property
+    def num_tags(self):
+        return self._dataset.num_tags
 
     def _collator(self, instances: List[InputSequence]) -> ReachBertInput:
         """ Converts a batch of `InputSequence`s into a suitable format for pytorch """

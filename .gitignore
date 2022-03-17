@@ -153,3 +153,5 @@ cython_debug/
 
 # Exclude all items in data folder
 data/
+ckpts/
+lightning_logs/

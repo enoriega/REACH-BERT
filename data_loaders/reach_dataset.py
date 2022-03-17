@@ -1,4 +1,3 @@
-import itertools
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +16,6 @@ class ReachDataset(Dataset):
     def __init__(self, data_dir:str,
                  masked_data_dir:Optional[str] = None,
                  overwrite_index:bool = False,
-                 debug: bool = False
                  ) -> None:
         """
         Builds an instance from the parameters. If there is no index, it created one by default, otherwise it loads it
@@ -30,8 +28,6 @@ class ReachDataset(Dataset):
 
         # Sets the current masked index to 1 if available, else to zero to return the original version
         self.__masked_index = 1 if self.index.num_masked_instances > 0 else 0
-
-        self.__debug = debug
 
     @property
     def num_interactions(self):
@@ -169,43 +165,18 @@ class ReachDataset(Dataset):
 
     def train_dataset(self) ->  Dataset:
         """ Generates training dataset view from current dataset """
-        if self.__debug:
-            indices = self.index.train_indices[:100]
-        else:
-            indices = self.index.train_indices
+        indices = self.index.train_indices
 
         return Subset(self, indices)
 
     def test_dataset(self) -> Dataset:
         """ Generates testing dataset view from current dataset """
-        if self.__debug:
-            indices = self.index.test_indices[:10]
-        else:
-            indices = self.index.test_indices
+        indices = self.index.test_indices
 
         return Subset(self, indices)
 
     def dev_dataset(self) -> Dataset:
         """ Generates development dataset view from current dataset """
-        if self.__debug:
-            indices = self.index.dev_indices[:10]
-        else:
-            indices = self.index.dev_indices
+        indices = self.index.dev_indices
 
         return Subset(self, indices)
-
-
-# Test case
-if __name__ == "__main__":
-    ds = ReachDataset("/media/evo870/data/reach-bert-data/bert_files",
-                      "/media/evo870/data/reach-bert-data/masked_data",
-                      False)
-
-    print(len(ds.train_dataset()))
-
-    # from numpy.random import default_rng
-    # rng = default_rng(1024)
-    # indices = rng.choice(len(ds), (1_000_000,))
-    #
-    # for ix in tqdm(indices):
-    #     ds[ix]

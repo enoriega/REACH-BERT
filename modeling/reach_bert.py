@@ -1,15 +1,13 @@
 """ Implement REACH BERT model """
-from collections import defaultdict
 from typing import Mapping, Optional
 
 import pytorch_lightning as pl
 import torch
-import torchmetrics
-from pytorch_lightning.utilities.types import STEP_OUTPUT, EPOCH_OUTPUT
+from pytorch_lightning.utilities.types import STEP_OUTPUT
 from torch import nn, Tensor
 from torch.nn import functional as F
-from torchmetrics import MetricCollection, Precision, Recall, F1, F1Score
-from transformers import AutoModel, AutoTokenizer
+from torchmetrics import MetricCollection, Precision, Recall, F1Score
+from transformers import AutoModel
 
 from data_loaders.reach_data_module import ReachBertInput
 
@@ -17,7 +15,7 @@ from data_loaders.reach_data_module import ReachBertInput
 class ReachBert(pl.LightningModule):
     """ REACH BERT """
 
-    def __init__(self, num_interactions: int, num_tags: int):
+    def __init__(self, backbone_model_name: str, num_interactions: int, num_tags: int):
         super(ReachBert, self).__init__()
 
         # Bookkeeping
@@ -43,7 +41,7 @@ class ReachBert(pl.LightningModule):
         ##############
 
         # Load BERT ckpt, the foundation to our model
-        self.transformer = AutoModel.from_pretrained("microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext")
+        self.transformer = AutoModel.from_pretrained(backbone_model_name)
 
         # TODO: Do research to find out the STOA arch for each of the heads
         # This is the pooler head, which will be used to predict the multilabel task of predicting the interactions
