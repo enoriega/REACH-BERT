@@ -42,7 +42,7 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
             Precision(num_classes=num_tags, average='macro'),
             Recall(num_classes=num_tags, average='macro')])
 
-        self.train_label_metrics = label_metrics.clone(prefix='train_')
+        # self.train_label_metrics = label_metrics.clone(prefix='train_')
         self.val_label_metrics = label_metrics.clone(prefix='val_')
 
         self.train_tag_metrics = tag_metrics.clone(prefix='train_')
@@ -57,7 +57,7 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
         # present in the current input
         self._pooler_head = nn.Sequential(
             #nn.Linear(768, 768),           # I assume that using the hidden states as bare features will backpropagate better for fine-tunning. Have to verify.
-            nn.Tanh(),
+            # nn.Tanh(),
             nn.Dropout(p=0.1),
             nn.Linear(768, num_interactions),
         )
@@ -65,7 +65,7 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
         # The tagger head is responsible for predicting the tags of the individual tokens (Participant, Trigger or None)
         self._tagger_head = nn.Sequential(
             #nn.Linear(768, 768),
-            nn.Tanh(),
+            # nn.Tanh(),
             nn.Dropout(p=0.1),
             nn.Linear(768, num_tags),
         )
@@ -124,7 +124,7 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
             "tag_predictions": tag_predictions.detach()
         }
 
-    def __step_end(self, batch_parts, step_kind:str, label_metrics:MetricCollection, tag_metrics:MetricCollection) -> STEP_OUTPUT:
+    def __step_end(self, batch_parts, step_kind:str, label_metrics:Optional[MetricCollection] = None, tag_metrics:Optional[MetricCollection] = None) -> STEP_OUTPUT:
         """ Generic step end hook """
 
         # Merge together all the batch parts, in case it runs in multiple GPUs
@@ -134,9 +134,13 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
         self.__log(step_kind, data, label_metrics, tag_metrics)
 
         # Return the merged step's data
-        return data
+        return data['loss']
 
-    def __log(self, step_kind:str, data:dict, label_metrics:MetricCollection, tag_metrics:MetricCollection):
+    def __log(self,
+              step_kind:str,
+              data:dict,
+              label_metrics:Optional[MetricCollection] = None,
+              tag_metrics:Optional[MetricCollection] = None):
         """ Generic log function for the metrics for the current step """
 
         def _log_collection(task_name:str, metrics:MetricCollection):
@@ -145,13 +149,14 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
             self.log(f"{task_name}/Precision {step_kind}", metrics.Precision, on_step=False, on_epoch=True)
             self.log(f"{task_name}/Recall {step_kind}", metrics.Recall, on_step=False, on_epoch=True)
 
-        # Compute the metrics from the predictions
-        label_metrics(data["label_predictions"], data["label_targets"])
-        tag_metrics(data["tag_predictions"], data["tag_targets"])
+        if label_metrics and tag_metrics:
+            # Compute the metrics from the predictions
+            label_metrics(data["label_predictions"], data["label_targets"])
+            tag_metrics(data["tag_predictions"], data["tag_targets"])
 
-        # Log metrics for both tasks
-        _log_collection("Label", label_metrics)
-        _log_collection("Tag", tag_metrics)
+            # Log metrics for both tasks
+            _log_collection("Label", label_metrics)
+            _log_collection("Tag", tag_metrics)
 
         # Log losses
         self.log(f"Loss/Label {step_kind}", data['label_loss'], on_step=True)
@@ -182,7 +187,7 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
         return self.__step(batch, batch_idx)
 
     def training_step_end(self, batch_parts):
-        return self.__step_end(batch_parts, "Train", self.train_label_metrics, self.train_tag_metrics)
+        return self.__step_end(batch_parts, "Train")
 
     def validation_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
         return self.__step(batch, batch_idx)
@@ -192,5 +197,5 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
     # endregion
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=4e-4, betas=(0.9, 0.98), eps=1e-6, weight_decay=0.01)
         return optimizer

@@ -1,14 +1,16 @@
 fit:
   seed_everything: 1987
   trainer:
-    precision: 16
+    precision: bf16 #bfloat16 available in Ampere GPUs (my 3060)
+    # Accumulate gradiaents based on the batch size in the training data
+#    accumulate_grad_batches: 40 # RoBERTa's batch size is 8k, so work out this val based on the batch size
     logger: true
     callbacks:
       # Configure checkpointing behavior here
       - class_path: pytorch_lightning.callbacks.ModelCheckpoint
         init_args:
           dirpath: ckpts
-          filename: '{epoch}-{Loss/Combined Val:.3f}'
+          filename: 'reach_bert-epoch_{epoch}-val_loss_{Loss/Combined Val:.3f}'
           save_top_k: 3
           auto_insert_metric_name: false
           monitor: "Loss/Combined Val"
@@ -29,7 +31,7 @@ fit:
     tokenizer_model_name: "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext"
     num_workers: 8
     # Best batch size for an RTX 3060
-    batch_size: 120
+    batch_size: 200
     # This is a hyper param tuned using data_processing/sequence_length_stats.py
     max_seq_len: 69
     # Set to true to regrenerate the dataset index every run
