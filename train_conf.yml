@@ -1,12 +1,14 @@
 fit:
   seed_everything: 1987
   trainer:
+    precision: 16
     logger: true
     callbacks:
       # Configure checkpointing behavior here
       - class_path: pytorch_lightning.callbacks.ModelCheckpoint
         init_args:
           dirpath: ckpts
+          filename: '{epoch}-{Loss/Combined Val:.3f}'
           save_top_k: 3
           auto_insert_metric_name: false
           monitor: "Loss/Combined Val"
@@ -27,7 +29,7 @@ fit:
     tokenizer_model_name: "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext"
     num_workers: 8
     # Best batch size for an RTX 3060
-    batch_size: 80
+    batch_size: 120
     # This is a hyper param tuned using data_processing/sequence_length_stats.py
     max_seq_len: 69
     # Set to true to regrenerate the dataset index every run

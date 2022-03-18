@@ -55,6 +55,14 @@ class ReachDataModule(LightningDataModule):
         return self._dataset.num_interactions
 
     @property
+    def interaction_weights(self):
+        return self._dataset.interaction_weights
+
+    @property
+    def tag_weights(self):
+        return self._dataset.tag_weights
+
+    @property
     def num_tags(self):
         return self._dataset.num_tags
 

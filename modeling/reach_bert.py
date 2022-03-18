@@ -1,6 +1,6 @@
 """ Implement REACH BERT model """
 from abc import ABC, ABCMeta
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Sequence
 
 import pytorch_lightning as pl
 import torch
@@ -16,12 +16,20 @@ from data_loaders.reach_data_module import ReachBertInput
 class ReachBert(pl.LightningModule, metaclass=ABCMeta):
     """ REACH BERT """
 
-    def __init__(self, backbone_model_name: str, num_interactions: int, num_tags: int):
+    def __init__(self,
+                 backbone_model_name: str,
+                 num_interactions: int,
+                 num_tags: int,
+                 interaction_weights:Optional[Sequence[float]] = None,
+                 tag_weights:Optional[Sequence[float]] = None):
+
         super(ReachBert, self).__init__()
 
         # Bookkeeping
         self.num_interactions = num_interactions
         self.num_tags = num_tags
+        self.interaction_weights = interaction_weights
+        self.tag_weights = tag_weights
 
         # Metrics
         label_metrics = MetricCollection([
@@ -75,11 +83,14 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
         inputs, tags, labels = batch.features, batch.tags, batch.labels
         x = self(**inputs)
 
+        interaction_weights = torch.tensor(self.interaction_weights, device=self.device) if self.interaction_weights else None
+        tag_weights = torch.tensor(self.tag_weights, device=self.device) if self.tag_weights else None
+
         # Pass the relevant outputs of the transformers to the appropriate heads
         pooler_tensor = x['last_hidden_state'][:, 0, :]  # This is the [CLS] embedding
         pooler_output = self._pooler_head(pooler_tensor)
 
-        label_loss = F.binary_cross_entropy_with_logits(pooler_output, labels)
+        label_loss = F.binary_cross_entropy_with_logits(pooler_output, labels, weight=interaction_weights)
 
         # Compute the predictions
         label_predictions = (torch.sigmoid(pooler_output) >= 0.5).float().detach()
@@ -100,7 +111,7 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
         tag_predictions = torch.max(tags_outputs, 1)[1]
         tag_targets = torch.max(tags, 1)[1]
 
-        tag_loss  = F.cross_entropy(tags_outputs, tags)
+        tag_loss  = F.cross_entropy(tags_outputs, tags, weight=tag_weights)
 
         # Return all data
         return {

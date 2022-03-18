@@ -16,9 +16,9 @@ class DatasetIndex:
     dev_indices: Sequence[int]
     test_indices: Sequence[int]
     interaction_codes: Mapping[str, int]
+    interaction_weights: Sequence[float]
     tag_codes: Mapping[str, int]
-    # num_interactions: int
-    # num_tags: int
+    tag_weights: Sequence[float]
 
     @property
     @lru_cache()
@@ -55,9 +55,9 @@ class DatasetIndex:
             dev_indices=data["dev_indices"],
             test_indices=data["test_indices"],
             interaction_codes={k:int(v) for k,v in data["interaction_codes"].items()},
-            tag_codes = {k: int(v) for k, v in data["tag_codes"].items()}
-            # num_interactions=data["num_interactions"],
-            # num_tags=data["num_tags"]
+            interaction_weights=[float(w) for w in data["interaction_weights"]],
+            tag_codes = {k: int(v) for k, v in data["tag_codes"].items()},
+            tag_weights = [float(w) for w in data["tag_weights"]],
         )
 
     def to_json(self) -> str:
@@ -71,9 +71,9 @@ class DatasetIndex:
                 "dev_indices": list(self.dev_indices),
                 "test_indices": list(self.test_indices),
                 "interaction_codes": self.interaction_codes,
-                "tag_codes": self.tag_codes
-                # "num_interactions": self.num_interactions,
-                # "num_tags": self.num_tags
+                "interaction_weights": self.interaction_weights,
+                "tag_codes": self.tag_codes,
+                "tag_weights": self.tag_weights
             }
         )
 

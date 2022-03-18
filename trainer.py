@@ -17,6 +17,9 @@ class ReachBertCLI(LightningCLI):
         # These arguments are precomputed on the index and don't need to be specified in config
         parser.link_arguments("data.num_interactions", "model.num_interactions", apply_on="instantiate")
         parser.link_arguments("data.num_tags", "model.num_tags", apply_on="instantiate")
+        parser.link_arguments("data.interaction_weights", "model.interaction_weights", apply_on="instantiate")
+        parser.link_arguments("data.tag_weights", "model.tag_weights", apply_on="instantiate")
+
 
 
 if __name__ == "__main__":

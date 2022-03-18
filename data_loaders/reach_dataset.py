@@ -1,13 +1,15 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
+from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import Dataset, Subset
 from tqdm import tqdm
 
 from data_loaders import DatasetIndex
 from data_loaders.utils import split_dataset
 from data_utils import parse_input_file, InputSequence
+from collections import Counter
 
 
 class ReachDataset(Dataset):
@@ -34,8 +36,16 @@ class ReachDataset(Dataset):
         return self.index.num_interactions
 
     @property
+    def interaction_weights(self):
+        return self.index.interaction_weights
+
+    @property
     def num_tags(self):
         return self.index.num_tags
+
+    @property
+    def tag_weights(self):
+        return self.index.tag_weights
 
     def __len__(self) -> int:
         """ Number of data in this dataset instance """
@@ -70,11 +80,6 @@ class ReachDataset(Dataset):
 
         return ret
 
-    # Overriding this to be able to use lru cache with the __getitem__ method efficiently.
-    # Don't care about this instance's hash
-    # def __hash__(self):
-    #     return 0
-
     @property
     def num_masked_instances(self) -> int:
         """ Number of masked instances available in this dataset """
@@ -105,6 +110,10 @@ class ReachDataset(Dataset):
         unique_tags = set()
         file_map = dict()
         index = 0
+        # Use counters to pre-compute class weights
+        label_counts = Counter()
+        tag_counts = Counter()
+
         for file_path in tqdm(data_dir.iterdir(), desc= "Creating dataset index", unit=" files"):
             file_name = str(file_path.stem)
             data = parse_input_file(file_path)
@@ -116,7 +125,9 @@ class ReachDataset(Dataset):
                     index += 1
                     labels.append(datum.event_labels)
                     unique_labels |= set(datum.event_labels)
+                    label_counts.update(datum.event_labels)
                     unique_tags |= set(datum.tags)
+                    tag_counts.update(datum.tags)
                     seen.add(d_hash)
 
         assert len(file_map) > 0, f"Empty data directory:{str(data_dir)}"
@@ -132,6 +143,14 @@ class ReachDataset(Dataset):
         # Split the data set
         train, dev, test  = split_dataset(np.arange(index), labels, num_test=100_000, num_dev=100_00)
 
+        # Compute the class weights
+        def __compute_weights(counter:Counter) -> Sequence[float]:
+            classes = list(sorted(counter.keys()))
+            return list(compute_class_weight('balanced', classes=classes, y=list(counter.elements())))
+
+        label_weights = __compute_weights(label_counts)
+        tag_weights = __compute_weights(tag_counts)
+
         index = DatasetIndex(
             data_dir= data_dir,
             file_map= file_map,
@@ -141,9 +160,9 @@ class ReachDataset(Dataset):
             dev_indices= dev,
             test_indices= test,
             interaction_codes= {label:ix for ix, label in enumerate(sorted(unique_labels))},
-            tag_codes= {label:ix for ix, label in enumerate(sorted(unique_tags))}
-            # num_interactions= len(unique_labels),
-            # num_tags= len(unique_tags)
+            interaction_weights= label_weights,
+            tag_codes= {label:ix for ix, label in enumerate(sorted(unique_tags))},
+            tag_weights= tag_weights
         )
 
         return index
