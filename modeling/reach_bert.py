@@ -58,7 +58,7 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
         self._pooler_head = nn.Sequential(
             #nn.Linear(768, 768),           # I assume that using the hidden states as bare features will backpropagate better for fine-tunning. Have to verify.
             # nn.Tanh(),
-            nn.Dropout(p=0.1),
+            # nn.Dropout(p=0.1),
             nn.Linear(768, num_interactions),
         )
 
@@ -66,7 +66,7 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
         self._tagger_head = nn.Sequential(
             #nn.Linear(768, 768),
             # nn.Tanh(),
-            nn.Dropout(p=0.1),
+            # nn.Dropout(p=0.1),
             nn.Linear(768, num_tags),
         )
 
@@ -124,18 +124,6 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
             "tag_predictions": tag_predictions.detach()
         }
 
-    def __step_end(self, batch_parts, step_kind:str, label_metrics:Optional[MetricCollection] = None, tag_metrics:Optional[MetricCollection] = None) -> STEP_OUTPUT:
-        """ Generic step end hook """
-
-        # Merge together all the batch parts, in case it runs in multiple GPUs
-        data = self.__merge_batch_parts(batch_parts)
-
-        # Do logging
-        self.__log(step_kind, data, label_metrics, tag_metrics)
-
-        # Return the merged step's data
-        return data['loss']
-
     def __log(self,
               step_kind:str,
               data:dict,
@@ -158,11 +146,6 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
             _log_collection("Label", label_metrics)
             _log_collection("Tag", tag_metrics)
 
-        # Log losses
-        self.log(f"Loss/Label {step_kind}", data['label_loss'], on_step=True)
-        self.log(f"Loss/Tag {step_kind}", data['tag_loss'], on_step=True)
-        self.log(f"Loss/Combined {step_kind}", data['loss'], on_step=True)
-
     def __merge_batch_parts(self, batch_parts):
         """ Merge batch parts when using data parallel computation (i.e. on the HPC) """
 
@@ -184,16 +167,25 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
 
     # region Step hooks
     def training_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        return self.__step(batch, batch_idx)
+        data = self.__step(batch, batch_idx)
 
-    def training_step_end(self, batch_parts):
-        return self.__step_end(batch_parts, "Train")
+        # Log losses
+        self.log(f"Train Loss/Label", data['label_loss'], on_step=True)
+        self.log(f"Train Loss/Tag", data['tag_loss'], on_step=True)
+        self.log(f"Train Loss", data['loss'], on_step=True)
+
+        return data
+
 
     def validation_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
-        return self.__step(batch, batch_idx)
+        data = self.__step(batch, batch_idx)
 
-    def validation_step_end(self, batch_parts) -> STEP_OUTPUT:
-        return self.__step_end(batch_parts, "Val", self.val_label_metrics, self.val_tag_metrics)
+        # Log losses
+        self.log(f"Val Loss/Label", data['label_loss'], on_epoch=True)
+        self.log(f"Val Loss/Tag", data['tag_loss'], on_epoch=True)
+        self.log(f"Val Loss", data['loss'], on_epoch=True)
+
+        return data
     # endregion
 
     def configure_optimizers(self):

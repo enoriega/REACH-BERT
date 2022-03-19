@@ -10,10 +10,10 @@ fit:
       - class_path: pytorch_lightning.callbacks.ModelCheckpoint
         init_args:
           dirpath: ckpts
-          filename: 'reach_bert-epoch_{epoch}-val_loss_{Loss/Combined Val:.3f}'
+          filename: 'reach_bert-epoch_{epoch}-step_{step}-val_loss_{Val Loss:.3f}'
           save_top_k: 3
           auto_insert_metric_name: false
-          monitor: "Loss/Combined Val"
+          monitor: "Val Loss"
       # Custom callback to shift the pre-masked version of the dataset each train epoch (see RoBERTa)
       - class_path: data_loaders.callbacks.ShiftMasksCallback
     gpus: 1
@@ -36,4 +36,4 @@ fit:
     max_seq_len: 69
     # Set to true to regrenerate the dataset index every run
     overwrite_dataset_index: false
-#  ckpt_path: ckpts
+#  ckpt_path: ckpts/reach_bert-epoch_0-step_14779-val_loss_1.393.ckpt
