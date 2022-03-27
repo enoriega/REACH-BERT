@@ -33,12 +33,12 @@ class DatasetIndex:
     @property
     @lru_cache()
     def codes_tag(self) -> Mapping[int, str]:
-        return {v:k for k, v in self.tag_codes}
+        return {v:k for k, v in self.tag_codes.items()}
 
     @property
     @lru_cache()
     def codes_interaction(self) -> Mapping[int, str]:
-        return {v:k for k, v in self.interaction_codes}
+        return {v:k for k, v in self.interaction_codes.items()}
 
     @classmethod
     def from_json_file(cls, path:Path) -> 'DatasetIndex':

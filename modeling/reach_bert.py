@@ -2,13 +2,14 @@
 from abc import ABC, ABCMeta
 from typing import Mapping, Optional, Sequence
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.utilities.types import STEP_OUTPUT
+from pytorch_lightning.utilities.types import STEP_OUTPUT, EPOCH_OUTPUT
 from torch import nn, Tensor
-from torch.nn import functional as F
+from torch.nn import functional as F, CrossEntropyLoss, MSELoss, BCELoss
 from torchmetrics import MetricCollection, Precision, Recall, F1Score
-from transformers import AutoModel
+from transformers import AutoModel, AutoModelForSequenceClassification
 
 from data_loaders.reach_data_module import ReachBertInput
 
@@ -33,95 +34,80 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
 
         # Metrics
         label_metrics = MetricCollection([
-            F1Score(num_classes= num_interactions, average = 'macro', mdmc_average='samplewise'),
-            Precision(num_classes= num_interactions, average = 'macro', mdmc_average='samplewise'),
-            Recall(num_classes= num_interactions, average = 'macro', mdmc_average='samplewise')])
+            F1Score(num_classes= num_interactions, average = 'micro', multiclass=False),
+            Precision(num_classes= num_interactions, average = 'macro', multiclass=False),
+            Recall(num_classes= num_interactions, average = 'macro', multiclass=False)])
 
         tag_metrics = MetricCollection([
             F1Score(num_classes=num_tags, average='macro'),
             Precision(num_classes=num_tags, average='macro'),
             Recall(num_classes=num_tags, average='macro')])
 
-        # self.train_label_metrics = label_metrics.clone(prefix='train_')
         self.val_label_metrics = label_metrics.clone(prefix='val_')
-
-        self.train_tag_metrics = tag_metrics.clone(prefix='train_')
-        self.val_tag_metrics = tag_metrics.clone(prefix='val_')
+        self.test_label_metrics = label_metrics.clone(prefix='test_')
         ##############
 
         # Load BERT ckpt, the foundation to our model
-        self.transformer = AutoModel.from_pretrained(backbone_model_name)
+        self.transformer = AutoModel.from_pretrained(backbone_model_name, num_labels=num_interactions)
 
-        # TODO: Do research to find out the STOA arch for each of the heads
-        # This is the pooler head, which will be used to predict the multilabel task of predicting the interactions
-        # present in the current input
-        self._pooler_head = nn.Sequential(
-            #nn.Linear(768, 768),           # I assume that using the hidden states as bare features will backpropagate better for fine-tunning. Have to verify.
-            # nn.Tanh(),
-            # nn.Dropout(p=0.1),
-            nn.Linear(768, num_interactions),
-        )
+        self.dropout = nn.Dropout(0.1)
+        self.classifier = nn.Linear(768, num_interactions)
 
-        # The tagger head is responsible for predicting the tags of the individual tokens (Participant, Trigger or None)
-        self._tagger_head = nn.Sequential(
-            #nn.Linear(768, 768),
-            # nn.Tanh(),
-            # nn.Dropout(p=0.1),
-            nn.Linear(768, num_tags),
-        )
-
-    def forward(self, **inputs:Mapping[str, Tensor]) -> Mapping[str, Tensor]:
+    def forward(self, **inputs:Mapping[str, Tensor]):
         """ Forward pass of our model """
 
         # Pass the tensor through the transformer
-        return self.transformer(**inputs) # We have to unpack the arguments of the transformer's fwd method
+        outputs = self.transformer(**inputs) # We have to unpack the arguments of the transformer's fwd method
+
+        pooled_output = outputs[1]
+
+        pooled_output = self.dropout(pooled_output)
+        logits = self.classifier(pooled_output)
+
+        ret = (logits,) + outputs[2:]  # add hidden states and attention if they are here
+
+        return ret
 
     # region Shared methods
     def __step(self, batch: ReachBertInput, batch_idx: int) -> Optional[STEP_OUTPUT]:
         """ Body of the train/val/test step """
 
-        inputs, tags, labels = batch.features, batch.tags, batch.labels
-        x = self(**inputs)
+        encoding, tags, labels = batch.encoding, batch.tags, batch.labels
 
-        interaction_weights = torch.tensor(self.interaction_weights, device=self.device) if self.interaction_weights else None
-        tag_weights = torch.tensor(self.tag_weights, device=self.device) if self.tag_weights else None
+        outputs = self(**encoding.data)
 
-        # Pass the relevant outputs of the transformers to the appropriate heads
-        pooler_tensor = x['last_hidden_state'][:, 0, :]  # This is the [CLS] embedding
-        pooler_output = self._pooler_head(pooler_tensor)
+        logits =  outputs[0]
 
-        label_loss = F.binary_cross_entropy_with_logits(pooler_output, labels, weight=interaction_weights)
+        if labels is not None:
+            if self.num_interactions == 1:
+                #  We are doing regression
+                loss_fct = MSELoss()
+                loss = loss_fct(logits.view(-1), labels.view(-1))
+            else:
+                # interaction_weights = torch.tensor(self.interaction_weights,
+                #                                    device=self.device) if self.interaction_weights else None
+                loss_fct = CrossEntropyLoss()
+                loss = loss_fct(logits.view(-1, self.num_interactions), labels)
+            outputs = (loss,) + outputs
 
-        # Compute the predictions
-        label_predictions = (torch.sigmoid(pooler_output) >= 0.5).float().detach()
 
-        tags_tensor = x['last_hidden_state']
-        tags_outputs = self._tagger_head(tags_tensor)
+        label_loss, logits = outputs
 
-        # Build a boolean mask to compute the loss only of the attended tokens (ignore the padded entries of the batch)
-        tags_mask = inputs['attention_mask'].flatten().bool()
 
-        # Flatten the batch to measure a two-dimension sequence of logits, then select only the attended logits
-        tags_outputs = tags_outputs.reshape((-1, self.num_tags))[tags_mask, :]
+        # tag_weights = torch.tensor(self.tag_weights, device=self.device) if self.tag_weights else None
 
-        # Do the same for the tag targets
-        tags = tags.reshape((-1, self.num_tags))[tags_mask, :]
+        label_predictions = (logits >= 0.5).int()
 
-        # Get the predictions and targets
-        tag_predictions = torch.max(tags_outputs, 1)[1]
-        tag_targets = torch.max(tags, 1)[1]
-
-        tag_loss  = F.cross_entropy(tags_outputs, tags, weight=tag_weights)
 
         # Return all data
         return {
-            "loss": label_loss + tag_loss,
+            "loss": label_loss, #+ tag_loss,
             "label_loss": label_loss.detach(),
             "label_targets":  labels.int(),
             "label_predictions": label_predictions.int(),
-            "tag_loss": tag_loss.detach(),
-            "tag_targets": tag_targets.detach(),
-            "tag_predictions": tag_predictions.detach()
+            # "tag_loss": tag_loss.detach(),
+            # "tag_targets": tag_targets.detach(),
+            # "tag_predictions": tag_predictions.detach()
         }
 
     def __log(self,
@@ -144,7 +130,7 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
 
             # Log metrics for both tasks
             _log_collection("Label", label_metrics)
-            _log_collection("Tag", tag_metrics)
+            # _log_collection("Tag", tag_metrics)
 
     def __merge_batch_parts(self, batch_parts):
         """ Merge batch parts when using data parallel computation (i.e. on the HPC) """
@@ -170,8 +156,8 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
         data = self.__step(batch, batch_idx)
 
         # Log losses
-        self.log(f"Train Loss/Label", data['label_loss'], on_step=True)
-        self.log(f"Train Loss/Tag", data['tag_loss'], on_step=True)
+        # self.log(f"Train Loss/Label", data['label_loss'], on_step=True)
+        # self.log(f"Train Loss/Tag", data['tag_loss'], on_step=True)
         self.log(f"Train Loss", data['loss'], on_step=True)
 
         return data
@@ -180,12 +166,40 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
     def validation_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
         data = self.__step(batch, batch_idx)
 
-        # Log losses
-        self.log(f"Val Loss/Label", data['label_loss'], on_epoch=True)
-        self.log(f"Val Loss/Tag", data['tag_loss'], on_epoch=True)
+        # Log
         self.log(f"Val Loss", data['loss'], on_epoch=True)
 
+        self.val_label_metrics(data['label_predictions'], data['label_targets'])
+
+        self.log("Val F1", self.test_label_metrics.F1Score, on_step=False, on_epoch=True)
+        self.log("Val Precision", self.test_label_metrics.F1Score, on_step=False, on_epoch=True)
+        self.log("Val Recall", self.test_label_metrics.F1Score, on_step=False, on_epoch=True)
+
         return data
+
+    def test_step(self, batch, batch_idx) -> Optional[STEP_OUTPUT]:
+        data = self.__step(batch, batch_idx)
+
+        self.test_label_metrics(data['label_predictions'], data['label_targets'])
+
+        self.log("Test F1", self.test_label_metrics.F1Score, on_step=False, on_epoch=True)
+        self.log("Test Precision", self.test_label_metrics.Precision, on_step=False, on_epoch=True)
+        self.log("Test Recall", self.test_label_metrics.Recall, on_step=False, on_epoch=True)
+
+        return data
+
+    # def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
+    #     preds,  targets = list(), list()
+    #
+    #     for o in outputs:
+    #         preds.append(o['label_predictions'])
+    #         targets.append(o['label_targets'])
+    #
+    #     preds = torch.cat(preds, dim=0).cpu().numpy()
+    #     targets = torch.cat(targets, dim=0).cpu().numpy()
+    #
+    #     np.save('preds_x.npy', preds)
+    #     np.save('targetx.npy', targets)
     # endregion
 
     def configure_optimizers(self):
