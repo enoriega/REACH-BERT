@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Callable, Union
 
 import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
@@ -11,6 +11,7 @@ from data_loaders.utils import split_dataset
 from data_utils import parse_input_file, InputSequence
 from collections import Counter
 
+InputSequenceManipulator = Callable[[InputSequence], InputSequence]
 
 class ReachDataset(Dataset):
     """ Dataset implementation over a directory with training data and optionally a directory with masked data """
@@ -18,6 +19,7 @@ class ReachDataset(Dataset):
     def __init__(self, data_dir:str,
                  masked_data_dir:Optional[str] = None,
                  overwrite_index:bool = False,
+                 data_hook:Optional[InputSequenceManipulator] = None
                  ) -> None:
         """
         Builds an instance from the parameters. If there is no index, it created one by default, otherwise it loads it
@@ -26,10 +28,13 @@ class ReachDataset(Dataset):
         """
 
         # Creates or loads an index on data_dir
-        self.index = self.create_or_load_index(Path(data_dir), Path(masked_data_dir) if masked_data_dir else None, overwrite_index)
+        self.index = self.create_or_load_index(Path(data_dir), Path(masked_data_dir) if masked_data_dir else None, overwrite_index, data_hook)
 
         # Sets the current masked index to 1 if available, else to zero to return the original version
         self.__masked_index = 1 if self.index.num_masked_instances > 0 else 0
+
+        # Data hook will be used to post process the data
+        self.__data_hook = data_hook
 
     @property
     def num_interactions(self):
@@ -37,7 +42,13 @@ class ReachDataset(Dataset):
 
     @property
     def interaction_weights(self):
-        return self.index.interaction_weights
+        iw =  self.index.interaction_weights
+        weights = [1. for _ in iw]
+
+        weights[self.index.interaction_codes['activation']] = 5.
+        weights[self.index.interaction_codes['regulation']] = 2.
+
+        return weights
 
     @property
     def num_tags(self):
@@ -57,8 +68,11 @@ class ReachDataset(Dataset):
         # Resolve the location of the item
         file, local_ix =  self.index.file_map[item]
 
+        # Prep the data hook
+        data_hook = self.__data_hook if self.__data_hook else lambda i: i
+
         # Fetch original InputSeq
-        items  = parse_input_file(self.index.data_dir / f"{file}.txt")
+        items  = [data_hook(i) for i in parse_input_file(self.index.data_dir / f"{file}.txt")]
 
         orig = items[local_ix]
 
@@ -99,7 +113,7 @@ class ReachDataset(Dataset):
             raise IndexError(f"Masked index out of bounds: {val} not within [0, {self.num_masked_instances}]")
 
     @staticmethod
-    def create_index(data_dir:  Path, masked_data_dir: Optional[Path]) -> DatasetIndex:
+    def create_index(data_dir:  Path, masked_data_dir: Optional[Path], data_hook: Optional[InputSequenceManipulator]) -> DatasetIndex:
         """
         Builds an index of the data set for random access retrieval
         """
@@ -114,10 +128,15 @@ class ReachDataset(Dataset):
         label_counts = Counter()
         tag_counts = Counter()
 
+        # Prep the data hook
+        data_hook = data_hook if data_hook else lambda i: i
+
         for file_path in tqdm(data_dir.iterdir(), desc= "Creating dataset index", unit=" files"):
             file_name = str(file_path.stem)
             data = parse_input_file(file_path)
             for local_ix, datum in enumerate(data):
+                # Pass the datum through the data hook
+                datum = data_hook(datum)
                 # Filter duplicate phrases
                 d_hash = hash(" ".join(datum.words))
                 if d_hash not in seen:
@@ -167,7 +186,10 @@ class ReachDataset(Dataset):
 
         return index
 
-    def create_or_load_index(self, data_dir: Path, masked_data_dir: Optional[Path], overwrite_index: bool = False) -> DatasetIndex:
+    def create_or_load_index(self, data_dir: Path,
+                             masked_data_dir: Optional[Path],
+                             overwrite_index: bool = False,
+                             data_hook: Optional[InputSequenceManipulator] = None) -> DatasetIndex:
 
         # If the index file is present, read it
         index_path = data_dir / "index.json"
@@ -176,7 +198,7 @@ class ReachDataset(Dataset):
 
         # Otherwise, create it and return it
         else:
-            index = self.create_index(data_dir, masked_data_dir)
+            index = self.create_index(data_dir, masked_data_dir, data_hook)
             with index_path.open('w') as f:
                 f.write(index.to_json())
 

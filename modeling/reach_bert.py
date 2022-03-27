@@ -7,7 +7,7 @@ import pytorch_lightning as pl
 import torch
 from pytorch_lightning.utilities.types import STEP_OUTPUT, EPOCH_OUTPUT
 from torch import nn, Tensor
-from torch.nn import functional as F, CrossEntropyLoss, MSELoss, BCELoss
+from torch.nn import functional as F, CrossEntropyLoss, MSELoss, BCELoss, BCEWithLogitsLoss
 from torchmetrics import MetricCollection, Precision, Recall, F1Score
 from transformers import AutoModel, AutoModelForSequenceClassification
 
@@ -84,9 +84,10 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
                 loss_fct = MSELoss()
                 loss = loss_fct(logits.view(-1), labels.view(-1))
             else:
-                # interaction_weights = torch.tensor(self.interaction_weights,
-                #                                    device=self.device) if self.interaction_weights else None
-                loss_fct = CrossEntropyLoss()
+                interaction_weights = torch.tensor(self.interaction_weights,
+                                                   device=self.device) if self.interaction_weights else None
+
+                loss_fct = BCEWithLogitsLoss()
                 loss = loss_fct(logits.view(-1, self.num_interactions), labels)
             outputs = (loss,) + outputs
 
@@ -133,7 +134,7 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
             # _log_collection("Tag", tag_metrics)
 
     def __merge_batch_parts(self, batch_parts):
-        """ Merge batch parts when using data parallel computation (i.e. on the HPC) """
+        """ Merge batch parts when using data parallel computation (indices.e. on the HPC) """
 
         if type(batch_parts) == dict:
             merged_data = dict()
@@ -171,9 +172,9 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
 
         self.val_label_metrics(data['label_predictions'], data['label_targets'])
 
-        self.log("Val F1", self.test_label_metrics.F1Score, on_step=False, on_epoch=True)
-        self.log("Val Precision", self.test_label_metrics.F1Score, on_step=False, on_epoch=True)
-        self.log("Val Recall", self.test_label_metrics.F1Score, on_step=False, on_epoch=True)
+        self.log("Val F1", self.val_label_metrics.F1Score, on_step=False, on_epoch=True)
+        self.log("Val Precision", self.val_label_metrics.Precision, on_step=False, on_epoch=True)
+        self.log("Val Recall", self.val_label_metrics.Recall, on_step=False, on_epoch=True)
 
         return data
 

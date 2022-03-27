@@ -9,6 +9,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizer, BatchEncoding
 from torch.utils.data import DataLoader
 
 from data_loaders import ReachDataset, DatasetIndex
+from data_loaders.utils import collapse_labels
 from data_utils import InputSequence
 
 
@@ -37,10 +38,15 @@ class ReachDataModule(LightningDataModule):
         :param dataset: to use for train/dev/test
         """
         super().__init__()
+
+        # TODO maybe make this configurable??
+        interaction_labels_hook = collapse_labels
+
         # Load the data module and query the parameters
         self._dataset = ReachDataset(data_dir=data_dir,
                                masked_data_dir=masked_data_dir,
-                               overwrite_index=overwrite_dataset_index)
+                               overwrite_index=overwrite_dataset_index,
+                               data_hook= interaction_labels_hook)
 
         # Load the tokenizer model
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_model_name)
