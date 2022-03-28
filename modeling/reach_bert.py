@@ -87,8 +87,13 @@ class ReachBert(pl.LightningModule, metaclass=ABCMeta):
                 interaction_weights = torch.tensor(self.interaction_weights,
                                                    device=self.device) if self.interaction_weights else None
 
+                # Compute the loss for each class independently
                 loss_fct = BCEWithLogitsLoss()
-                loss = loss_fct(logits.view(-1, self.num_interactions), labels)
+                losses = []
+                for class_ix in range(logits.size()[1]):
+                    class_loss = loss_fct(logits[:, class_ix], labels[:, class_ix])
+                    losses.append(class_loss)
+                loss = sum(losses)
             outputs = (loss,) + outputs
 
 

@@ -3,6 +3,8 @@ from typing import Sequence, Tuple
 import numpy as np
 from sklearn.model_selection import train_test_split
 
+from data_utils import InputSequence
+
 
 def split_dataset(indices: Sequence[int], labels:Sequence[Sequence[str]], num_test: int, num_dev: int) -> Tuple[Sequence[int], Sequence[int], Sequence[int]]:
     """
@@ -43,3 +45,30 @@ def split_dataset(indices: Sequence[int], labels:Sequence[Sequence[str]], num_te
     return X_train.reshape((-1, )).tolist(), X_dev.reshape((-1, )).tolist(), X_test.reshape((-1, )).tolist()
 
 
+def collapse_labels(i: InputSequence) -> InputSequence:
+    """
+    Simplify the label space by grouping together similar labels and filtering out irrelevant labels
+
+    :param i: InnputSequence to mutate
+    :return: mutated version of the input sequence
+    """
+
+    new_labels = []
+    for l in i.event_labels:
+        if l in {"amount", "decreaseamount", "localization", "translocation", "gene-expression", "transcription"}:
+            pass # Ignore these
+        # elif l in {"gene-expression", "transcription"}:
+        #     new_labels.append("transcription") # These are basically the same
+        elif l.startswith("positive-") or l.startswith("negative-"):
+            new_labels.append(l.split("-")[-1]) # Strip polarity from the event
+        elif l.endswith("ation") or l == "hydrolysis":
+            new_labels.append("simple-event")
+        else:
+            new_labels.append(l)
+
+    # Overwrite the labels with the new, simpler ones
+    new_data = i._asdict()
+    new_data['event_labels'] = list(set(new_labels))
+    new = InputSequence(**new_data)
+
+    return new
